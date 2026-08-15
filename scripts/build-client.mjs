@@ -20,7 +20,7 @@ window.__ModuleLoader__.load({
 \t\tconst React = require('react')
 \t\tconst ReactDOM = require('react-dom')
 \t\tconst primitives = require('@deepseek-ai/dsh-client-ui-primitives')
-\t\tconst { Button, RiskConfirmation, Toast, Tooltip, IconTrashOutline16, IconCloseOutline16, IconWarningOutline16 } = primitives
+\t\tconst { Button, Modal, RiskConfirmation, Toast, Tooltip, IconTrashOutline16, IconCloseOutline16, IconWarningOutline16 } = primitives
 
 ${panel}
 

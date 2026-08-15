@@ -27,6 +27,31 @@ assert.equal(
   true,
   'confirmed missing-artifact state survives normalization',
 )
+assert.equal(
+  host.normalizeTrashEntry({
+    sessionId: 'session-batchrow-0000-4000-8000-000000000000',
+    batchId: 'batch-12345678-0000-4000-8000-000000000000',
+    batchRootSessionId: 'session-batchroot-0000-4000-8000-000000000000',
+  }).batchRootSessionId,
+  'session-batchroot-0000-4000-8000-000000000000',
+  'valid cascade batch metadata survives normalization',
+)
+
+const lineageRoot = 'session-lineageroot-0000-4000-8000-000000000000'
+const lineageChild = 'session-lineagechild-0000-4000-8000-000000000000'
+const lineageGrandchild = 'session-lineagegrand-0000-4000-8000-000000000000'
+const ordinaryFork = 'session-ordinaryfork-0000-4000-8000-000000000000'
+const forkSubagent = 'session-forksubagent-0000-4000-8000-000000000000'
+assert.deepEqual(
+  host.subagentDescendants([
+    { id: lineageChild, parentSession: lineageRoot, origin: 'subagent', createdAt: 2 },
+    { id: lineageGrandchild, parentSession: lineageChild, origin: 'subagent', createdAt: 3 },
+    { id: ordinaryFork, parentSession: lineageRoot, createdAt: 1 },
+    { id: forkSubagent, parentSession: ordinaryFork, origin: 'subagent', createdAt: 4 },
+  ], lineageRoot).map((header) => header.id),
+  [lineageChild, lineageGrandchild],
+  'cascade follows uninterrupted subagent lineage and stops at ordinary forks',
+)
 
 const DEAD = 'session-deadbeef-0000-4000-8000-000000000000'
 const KEEP = 'session-keep0000-0000-4000-8000-000000000000'

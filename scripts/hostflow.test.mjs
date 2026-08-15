@@ -123,7 +123,7 @@ assert.equal(out.body.trash[0].sizeBytes, 8, 'list includes artifact size')
 assert.equal(out.body.trash[0].canPurge, false, 'live sessions cannot be purged immediately')
 assert.ok(registry.state.archivedSessionIds.includes(LIVE), 'registry archived the session')
 assert.ok(existsSync(join(storages, 'session-trash.json')), 'manifest persisted')
-assert.equal(JSON.parse(readFileSync(join(storages, 'session-trash.json'), 'utf8')).version, 2, 'manifest upgraded to v2')
+assert.equal(JSON.parse(readFileSync(join(storages, 'session-trash.json'), 'utf8')).version, 3, 'manifest upgraded to v3')
 
 // 3. restore it
 out = await call('/session-trash/restore', { sessionId: LIVE })

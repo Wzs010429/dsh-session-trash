@@ -8,15 +8,16 @@
 
 | 需求 | 官方机制 | 结论 |
 | --- | --- | --- |
-| 前端新增删除入口 | `sidebar.footer.action` slot（稳定入口）+ 基于 `role=treeitem/menu/menuitem` 的会话菜单语义 DOM 增强 + 官方 `RiskConfirmation`/`Toast` 原语 | ✅ |
-| 二次确认 | `RiskConfirmation`（确认按钮在勾选确认项之前禁用） | ✅ |
+| 前端新增删除入口 | `sidebar.footer.action` slot（稳定入口）+ 基于 `role=treeitem/menu/menuitem` 的会话菜单语义 DOM 增强 + 官方 `Modal`/`RiskConfirmation`/`Toast` 原语 | ✅ |
+| 二次确认 | 删除使用 `Modal` 显式选择单项/级联范围并勾选确认；永久清理使用 `RiskConfirmation` | ✅ |
+| 子代理级联 | 读取持久化 `header.parentSession`/`origin`，严格沿连续 `origin: subagent` 链预览；默认只删当前会话，普通 fork 截断传播 | ✅ |
 | 删除后立即隐藏 | `workspaceRegistry.archiveSession()`——官方归档：分组视图**和搜索**全部隐藏（`sessionVisible` 过滤），`host/archived-sessions-changed` 帧自动同步所有标签页 | ✅ |
 | 运行期间可恢复 | 注册表**无公开 unarchive API**；通过注册表自身的 `enqueueOperation()` + `setState()` 写回不含该 id 的归档集，域写入自动触发 `domain/changed` → api-proxy 广播帧 → 即时回归（已在源码确认 `dsh-host-apiproxy` 的 domain/changed 监听器会推送完整归档快照） | ✅（依赖内部方法签名） |
 | 运行期永久删除 | 仅允许未加载会话；Workspace 经 `detachSession()`/`setState()` 清理，投影缓存经其 domain table 清理，避免内存态覆盖带外 JSON 修改 | ✅（依赖内部方法签名） |
 | 删除前占用预览 | 对受 sessions-root 路径守卫保护的会话工件目录做短时缓存统计；符号链接不递归跟随。API 定位失败后扫描标准两级布局，明确区分已确认不存在（`0 B`）与不可判定（大小未知） | ✅ |
 | 关闭后物理删除 | DSH **没有任何会话删除 API**；插件识别 `SIGINT/SIGTERM`，在 Cordis dispose 阶段按 `purgeOnShutdown` 策略同步执行文件手术，`process.on('exit')` 作为强制退出 fallback | ✅ |
 | 删除缓存文本 | 投影缓存同样无逐出 API；运行期隐藏后搜索/列表均不可达（会话行仅留在隐藏列表 store 中）；退出时从 `session_projcache.json` 删除该 id 的整行（title/stat/goal 等） | ✅ |
-| 数据安全 | v2 清单使用 `pending → committed → purging`：未提交项不物理删除，已开始物理删除项不再提供虚假恢复，失败项幂等重试 | ✅ |
+| 数据安全 | v3 清单使用 `pending → committed → purging`，并为级联条目记录共享 `batchId`：未提交项不物理删除，已开始物理删除项不再提供虚假恢复，失败项幂等重试 | ✅ |
 
 ## 二、需求设计是否合理
 
@@ -28,7 +29,7 @@
 4. **显式立即清理**：仅对不在 session service 中的冷会话开放；先把清单推进到 `purging`，再删工件并通过运行时 domain 写路径清 metadata，最后移除清单行。
 5. **无工件收敛**：只有完整读取 sessions 根目录并确认无同 id 目录时才写入 `artifactMissing`；该状态允许执行 metadata-only 清理。权限错误等不可判定场景仍保留清单。
 
-### v2 清单状态机
+### v3 清单状态机
 
 | 状态 | 含义 | 可恢复 | 可物理清理 |
 | --- | --- | --- | --- |
@@ -36,9 +37,11 @@
 | `committed` | 会话已归档，工件完整保留 | ✅ | ✅（仅冷会话） |
 | `purging` | 物理删除已开始，工件或 metadata 可能已部分移除 | ❌ | ✅（幂等重试） |
 
+级联批次在归档任一成员前先把全部独立条目以 `pending` 一次落盘；只有每个成员都归档成功后，才把整批转为 `committed` 并再次原子写入。因此进程在批次中间崩溃时，重启后所有成员仍只能恢复、不能物理清理。任意条目的恢复操作都会恢复该 `batchId` 下仍存在的全部条目。
+
 值得指出的三个设计代价（已写入 README「已知限制」）：
 
-- **不级联子代理会话**：DSH 中子代理是带 `parentSession` 血缘的独立会话，官方归档同样不处理它们；v1 只删所选会话；
+- **级联不等于停止执行**：DSH 中子代理是带 `parentSession` 血缘的独立会话；归档只隐藏会话，运行中的后代可能继续在后台执行，确认框会明确显示数量；
 - **依赖内部 seam**：`enqueueOperation`/`setState` 是 `WorkspaceRegistry` 原型上的内部方法（非公开 API），DSH 升级可能改名——已注明版本兼容要求；
 - **无官方 UI 菜单注入点**：会话行的 `…` 菜单是内置组件硬编码的（rename/fork/archive 三件）。稳定入口仍是侧边栏回收站；三点菜单使用语义 DOM 桥接，标题重复或上游语义结构变化时安全退回面板，不 fork 整个 Workspace bundle。
 
@@ -68,8 +71,9 @@
 | 文件 | 职责 |
 | --- | --- |
 | `cordis.patch.yml` | bundle patch：把插件行注入 profile 组合 |
-| `lib/index.js` | host：list/delete/restore/settings/purge 路由、v2 事务清单、占用统计、运行期与关停清理；导出纯函数供测试 |
-| `lib/client.js` | browser：`sidebar.footer.action` 入口按钮 + 回收站面板（body portal）+ RiskConfirmation 二次确认 + Toast；不 fork 官方 Workspace |
+| `lib/index.js` | host：list/preview/delete/restore/settings/purge 路由、v3 批次事务清单、子代理血缘、占用统计、运行期与关停清理；导出纯函数供测试 |
+| `lib/client.js` | browser：`sidebar.footer.action` 入口按钮 + 回收站面板（body portal）+ 单项/级联 Modal + 永久清理 RiskConfirmation + Toast；不 fork 官方 Workspace |
+| `scripts/cascadeflow.test.mjs` | mock ctx 端到端：血缘预览→批次失败回滚→批次提交→从任意成员整批恢复 |
 | `scripts/selftest.mjs` | 夹具级单测：JSON 手术、原子写、路径越界防护 |
 | `scripts/hostflow.test.mjs` | mock ctx 端到端：删除→清单→恢复→再删→exit 硬清除 |
 | `scripts/purgeflow.test.mjs` | mock ctx 端到端：大小预览→运行中保护→冷会话立即清理→运行时 metadata 同步 |
