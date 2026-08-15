@@ -1,7 +1,7 @@
 {
   "name": "@dsh-external/dsh-session-trash",
-  "description": "Session trash bin for the DeepSeek Harness Web GUI: soft-delete a session (restorable while dsh web is running), permanently purged when dsh web shuts down",
-  "version": "0.4.0",
+  "description": "Session trash bin for the DeepSeek Harness Web GUI with restorable soft-delete and configurable shutdown purge",
+  "version": "0.5.0",
   "license": "MIT",
   "type": "module",
   "main": "lib/index.js",
@@ -42,7 +42,7 @@
   },
   "scripts": {
     "build:client": "node scripts/build-client.mjs",
-    "test": "node scripts/selftest.mjs && node scripts/hostflow.test.mjs && node scripts/clientbundle.test.mjs"
+    "test": "node scripts/selftest.mjs && node scripts/hostflow.test.mjs && node scripts/settingsflow.test.mjs && node scripts/clientbundle.test.mjs"
   },
   "repository": {
     "type": "git",

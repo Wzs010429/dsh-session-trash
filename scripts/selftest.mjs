@@ -13,6 +13,10 @@ const tmp = mkdtempSync(join(tmpdir(), 'session-trash-selftest-'))
 process.env.DSH_HOME = tmp
 const host = await import('../lib/index.js')
 
+assert.deepEqual(host.normalizeSettings(undefined), { purgeOnShutdown: true }, 'settings default to shutdown purge')
+assert.deepEqual(host.normalizeSettings({ purgeOnShutdown: false }), { purgeOnShutdown: false }, 'explicit keep policy persists')
+assert.deepEqual(host.normalizeSettings({ purgeOnShutdown: 'no' }), { purgeOnShutdown: true }, 'invalid setting falls back safely')
+
 const DEAD = 'session-deadbeef-0000-4000-8000-000000000000'
 const KEEP = 'session-keep0000-0000-4000-8000-000000000000'
 const storages = join(tmp, 'storages')

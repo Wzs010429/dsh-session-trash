@@ -11,6 +11,8 @@ assert.ok(client.includes("id: '@dsh-external/dsh-session-trash'"), 'bundle keep
 assert.ok(client.includes("ctx.slots.inject('sidebar.footer.action'"), 'bundle uses the supported footer slot')
 assert.ok(client.includes('data-session-trash-menu-item'), 'bundle enhances the stock session menu without forking it')
 assert.ok(client.includes('[role="treeitem"][draggable="true"]'), 'menu bridge targets semantic session rows')
+assert.ok(client.includes("'/session-trash/settings'"), 'bundle exposes the shutdown purge policy')
+assert.ok(client.includes("'entry.label.count'"), 'bundle renders a pending-trash count')
 assert.ok(!client.includes('workspaceFork'), 'bundle does not embed the stock Workspace plugin')
 assert.ok(!client.includes('const NS = "workspace"'), 'bundle cannot register the stock Workspace locale')
 assert.ok(!patch.includes('id: ui-workspace'), 'bundle patch does not disable the stock Workspace entry')

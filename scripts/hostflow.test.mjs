@@ -81,11 +81,11 @@ const disposers = []
 host.apply(ctx)
 
 // ---- tiny http plumbing ------------------------------------------------------
-async function call(path, payload) {
+async function call(path, payload, method = 'POST') {
   const route = routes.get(path)
   assert.ok(route, `route registered: ${path}`)
   const res = { statusCode: 0, headers: {}, body: '', setHeader(k, v) { this.headers[k] = v }, end(text) { this.body = text } }
-  const req = { method: 'POST', on(event, cb) { if (event === 'end') queueMicrotask(cb); if (event === 'error') {} if (event === 'data') {} }, raw: JSON.stringify(payload ?? {}) }
+  const req = { method, on(event, cb) { if (event === 'end') queueMicrotask(cb); if (event === 'error') {} if (event === 'data') {} }, raw: JSON.stringify(payload ?? {}) }
   // patch: deliver the body
   req.on = (event, cb) => {
     if (event === 'data' && payload !== undefined) cb(Buffer.from(JSON.stringify(payload)))
@@ -97,9 +97,20 @@ async function call(path, payload) {
 }
 
 // ---- flow ----------------------------------------------------------------------
-// 1. list starts empty
-let out = await call('/session-trash/list')
+// 1. list starts empty and settings round-trip through their own durable file.
+let out = await call('/session-trash/list', undefined, 'GET')
 assert.deepEqual(out.body.trash, [], 'initial trash empty')
+assert.deepEqual(out.body.settings, { purgeOnShutdown: true }, 'shutdown purge defaults on')
+out = await call('/session-trash/settings', { purgeOnShutdown: false })
+assert.equal(out.status, 200, 'settings update succeeds')
+assert.equal(out.body.settings.purgeOnShutdown, false)
+assert.equal(JSON.parse(readFileSync(join(storages, 'session-trash-settings.json'), 'utf8')).purgeOnShutdown, false, 'settings persist')
+out = await call('/session-trash/settings', undefined, 'GET')
+assert.equal(out.body.settings.purgeOnShutdown, false, 'settings GET returns current policy')
+out = await call('/session-trash/settings', { purgeOnShutdown: 'invalid' })
+assert.equal(out.status, 400, 'invalid setting refused')
+out = await call('/session-trash/settings', { purgeOnShutdown: true })
+assert.equal(out.body.settings.purgeOnShutdown, true, 'shutdown purge can be re-enabled')
 
 // 2. delete the live session
 out = await call('/session-trash/delete', { sessionId: LIVE })

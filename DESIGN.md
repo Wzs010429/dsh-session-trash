@@ -1,6 +1,6 @@
 # 设计文档：DSH 会话删除插件（dsh-session-trash）
 
-> 目标：在 DSH Web GUI 中新增「删除会话」能力——运行期间软删除可恢复，`dsh web` 关闭时物理删除并同步清理缓存，带二次确认。本文回答「可行性如何、设计是否合理」，并记录实现依据（所有结论均来自对已安装 DSH `0.1.0-rc.x` 源码与运行数据的实际调查）。
+> 目标：在 DSH Web GUI 中新增带二次确认的会话回收站——软删除可恢复，并由本地策略决定正常关闭时是否物理删除及同步清理缓存。
 
 ## 一、可行性结论
 
@@ -12,7 +12,7 @@
 | 二次确认 | `RiskConfirmation`（确认按钮在勾选确认项之前禁用） | ✅ |
 | 删除后立即隐藏 | `workspaceRegistry.archiveSession()`——官方归档：分组视图**和搜索**全部隐藏（`sessionVisible` 过滤），`host/archived-sessions-changed` 帧自动同步所有标签页 | ✅ |
 | 运行期间可恢复 | 注册表**无公开 unarchive API**；通过注册表自身的 `enqueueOperation()` + `setState()` 写回不含该 id 的归档集，域写入自动触发 `domain/changed` → api-proxy 广播帧 → 即时回归（已在源码确认 `dsh-host-apiproxy` 的 domain/changed 监听器会推送完整归档快照） | ✅（依赖内部方法签名） |
-| 关闭后物理删除 | DSH **没有任何会话删除 API**（官方文档明确「无删除接口，带外维护」）；插件识别 `SIGINT/SIGTERM`，并在 DSH 的 Cordis dispose 阶段同步执行文件手术，`process.on('exit')` 作为强制退出 fallback | ✅ |
+| 关闭后物理删除 | DSH **没有任何会话删除 API**；插件识别 `SIGINT/SIGTERM`，在 Cordis dispose 阶段按 `purgeOnShutdown` 策略同步执行文件手术，`process.on('exit')` 作为强制退出 fallback | ✅ |
 | 删除缓存文本 | 投影缓存同样无逐出 API；运行期隐藏后搜索/列表均不可达（会话行仅留在隐藏列表 store 中）；退出时从 `session_projcache.json` 删除该 id 的整行（title/stat/goal 等） | ✅ |
 | 数据安全 | 删除清单持久化：异常退出（崩溃/强杀）时归档保留 + 清单重载 → 会话保持隐藏且可恢复，**永不意外丢失** | ✅ |
 
@@ -56,7 +56,7 @@
 | 文件 | 职责 |
 | --- | --- |
 | `cordis.patch.yml` | bundle patch：把插件行注入 profile 组合 |
-| `lib/index.js` | host：HTTP 路由（list/delete/restore）、内存回收站、清单持久化、`exit` 硬删除钩子；导出纯函数供测试 |
+| `lib/index.js` | host：list/delete/restore/settings 路由、回收站与策略持久化、信号感知的关停清理；导出纯函数供测试 |
 | `lib/client.js` | browser：`sidebar.footer.action` 入口按钮 + 回收站面板（body portal）+ RiskConfirmation 二次确认 + Toast；不 fork 官方 Workspace |
 | `scripts/selftest.mjs` | 夹具级单测：JSON 手术、原子写、路径越界防护 |
 | `scripts/hostflow.test.mjs` | mock ctx 端到端：删除→清单→恢复→再删→exit 硬清除 |
