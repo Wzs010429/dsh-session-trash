@@ -1,7 +1,7 @@
 {
   "name": "@dsh-external/dsh-session-trash",
-  "description": "Crash-safe session trash for the DeepSeek Harness Web GUI with restore, size preview, and guarded permanent purge",
-  "version": "0.6.0",
+  "description": "Crash-safe session trash for the DeepSeek Harness Web GUI with undo, restore, cross-tab sync, and guarded permanent purge",
+  "version": "0.7.0",
   "license": "MIT",
   "type": "module",
   "main": "lib/index.js",
