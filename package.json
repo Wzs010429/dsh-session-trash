@@ -1,0 +1,53 @@
+{
+  "name": "@dsh-external/dsh-session-trash",
+  "description": "Session trash bin for the DeepSeek Harness Web GUI: soft-delete a session (restorable while dsh web is running), permanently purged when dsh web shuts down",
+  "version": "0.1.0",
+  "license": "MIT",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/index.js",
+    "lib/client.js",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-ui-sidebar"
+      ],
+      "platform": "web"
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node scripts/selftest.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/WHMC-DaChuang/dsh-session-trash.git"
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "plugin",
+    "session",
+    "trash",
+    "web-gui"
+  ]
+}

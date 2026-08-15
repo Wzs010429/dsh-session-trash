@@ -1,0 +1,7 @@
+# dsh-session-trash bundle patch: inserts its plugin row into the profile
+# composition. The bundle is the official dsh plugin shape — install it with
+#   dsh plugin --profile web add <path-to-this-directory>
+# then restart `dsh web`.
+- insert:
+    - id: session-trash
+      name: '@dsh-external/dsh-session-trash'
