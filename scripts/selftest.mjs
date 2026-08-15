@@ -22,6 +22,11 @@ assert.equal(
   'committed',
   'legacy manifest rows migrate as committed',
 )
+assert.equal(
+  host.normalizeTrashEntry({ sessionId: 'session-missing0-0000-4000-8000-000000000000', artifactMissing: true }).artifactMissing,
+  true,
+  'confirmed missing-artifact state survives normalization',
+)
 
 const DEAD = 'session-deadbeef-0000-4000-8000-000000000000'
 const KEEP = 'session-keep0000-0000-4000-8000-000000000000'
@@ -31,6 +36,8 @@ mkdirSync(storages, { recursive: true })
 const deadDir = join(sessions, '--C-Users-ROG-Desktop--', DEAD)
 mkdirSync(deadDir, { recursive: true })
 writeFileSync(join(deadDir, 'session.jsonl.zstd'), 'fake-log')
+assert.equal(host.inspectSessionArtifactOnDisk(DEAD).status, 'found', 'guarded disk inspection finds a canonical session directory')
+assert.equal(host.inspectSessionArtifactOnDisk(KEEP).status, 'missing', 'guarded disk inspection confirms an absent session directory')
 
 // ---- workspace.json surgery ------------------------------------------------
 const wsFile = join(storages, 'workspace.json')
@@ -118,6 +125,8 @@ assert.ok(missing.ok, 'missing artifact tolerates')
 // An unknown artifact path must keep the manifest for a later retry.
 const unknown = host.deleteSessionArtifact({ sessionId: DEAD })
 assert.ok(!unknown.ok, 'missing artifact path is not committed as a successful purge')
+assert.equal(host.sessionArtifactSize({ sessionId: KEEP, artifactMissing: true }), 0, 'confirmed missing artifact reports zero bytes')
+assert.ok(host.deleteSessionArtifact({ sessionId: KEEP, artifactMissing: true }).ok, 'confirmed missing artifact permits metadata-only purge')
 
 // outside-root guard
 const outside = host.deleteSessionArtifact({ sessionId: DEAD, artifactPath: join(tmp, '..', 'other', 'session.jsonl.zstd') })

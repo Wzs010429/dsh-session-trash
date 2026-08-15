@@ -13,7 +13,7 @@
 | 删除后立即隐藏 | `workspaceRegistry.archiveSession()`——官方归档：分组视图**和搜索**全部隐藏（`sessionVisible` 过滤），`host/archived-sessions-changed` 帧自动同步所有标签页 | ✅ |
 | 运行期间可恢复 | 注册表**无公开 unarchive API**；通过注册表自身的 `enqueueOperation()` + `setState()` 写回不含该 id 的归档集，域写入自动触发 `domain/changed` → api-proxy 广播帧 → 即时回归（已在源码确认 `dsh-host-apiproxy` 的 domain/changed 监听器会推送完整归档快照） | ✅（依赖内部方法签名） |
 | 运行期永久删除 | 仅允许未加载会话；Workspace 经 `detachSession()`/`setState()` 清理，投影缓存经其 domain table 清理，避免内存态覆盖带外 JSON 修改 | ✅（依赖内部方法签名） |
-| 删除前占用预览 | 对受 sessions-root 路径守卫保护的会话工件目录做短时缓存统计；符号链接不递归跟随 | ✅ |
+| 删除前占用预览 | 对受 sessions-root 路径守卫保护的会话工件目录做短时缓存统计；符号链接不递归跟随。API 定位失败后扫描标准两级布局，明确区分已确认不存在（`0 B`）与不可判定（大小未知） | ✅ |
 | 关闭后物理删除 | DSH **没有任何会话删除 API**；插件识别 `SIGINT/SIGTERM`，在 Cordis dispose 阶段按 `purgeOnShutdown` 策略同步执行文件手术，`process.on('exit')` 作为强制退出 fallback | ✅ |
 | 删除缓存文本 | 投影缓存同样无逐出 API；运行期隐藏后搜索/列表均不可达（会话行仅留在隐藏列表 store 中）；退出时从 `session_projcache.json` 删除该 id 的整行（title/stat/goal 等） | ✅ |
 | 数据安全 | v2 清单使用 `pending → committed → purging`：未提交项不物理删除，已开始物理删除项不再提供虚假恢复，失败项幂等重试 | ✅ |
@@ -26,6 +26,7 @@
 2. **关停硬删除**：DSH 收到关停信号后先 dispose 整棵插件树，再调用 `process.exit()`；插件在自身 disposer 中提交「删文件 + 改注册表 + 清缓存」，避免 `exit` 监听器先被 Cordis 清理而永远不执行；
 3. **崩溃安全**：清单持久化让强杀/断电场景退化为「隐藏但可恢复」，与用户「关闭即删」的期望只在**安全方向**上偏离。
 4. **显式立即清理**：仅对不在 session service 中的冷会话开放；先把清单推进到 `purging`，再删工件并通过运行时 domain 写路径清 metadata，最后移除清单行。
+5. **无工件收敛**：只有完整读取 sessions 根目录并确认无同 id 目录时才写入 `artifactMissing`；该状态允许执行 metadata-only 清理。权限错误等不可判定场景仍保留清单。
 
 ### v2 清单状态机
 
@@ -72,6 +73,7 @@
 | `scripts/selftest.mjs` | 夹具级单测：JSON 手术、原子写、路径越界防护 |
 | `scripts/hostflow.test.mjs` | mock ctx 端到端：删除→清单→恢复→再删→exit 硬清除 |
 | `scripts/purgeflow.test.mjs` | mock ctx 端到端：大小预览→运行中保护→冷会话立即清理→运行时 metadata 同步 |
+| `scripts/orphanflow.test.mjs` | mock ctx 端到端：缺失工件确认→`0 B`→metadata-only 清理 |
 
 ## 五、风险与缓解
 
@@ -83,3 +85,4 @@
 | 物理删除中途崩溃后误恢复 | 删除任何工件前先持久化 `purging`；该状态禁用恢复，只允许幂等重试清理 |
 | 插件损坏导致 web 无法启动 | 行级回滚：从 profile `package.json` 移除 bundles/dependencies 条目即可恢复 |
 | 多标签页一致性 | 会话显隐仍走官方广播帧；插件面板状态用 `BroadcastChannel` 发送失效通知，各标签页收到后从 host API 重新读取权威清单，并保留焦点/可见性刷新和 30 秒轮询兜底 |
+| 主题或第三方皮肤切换后对比度失效 | 不读取固定颜色模式；所有表面、边框、文字、状态和阴影走 Harness 的 `--dsw-*` 设计变量，由 `body[data-ds-dark-theme]` 与皮肤覆写自动接管 |
