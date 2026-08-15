@@ -104,6 +104,10 @@ assert.ok(!existsSync(deadDir), 'session directory fully removed')
 const missing = host.deleteSessionArtifact({ sessionId: DEAD, artifactPath: join(deadDir, 'session.jsonl.zstd') })
 assert.ok(missing.ok, 'missing artifact tolerates')
 
+// An unknown artifact path must keep the manifest for a later retry.
+const unknown = host.deleteSessionArtifact({ sessionId: DEAD })
+assert.ok(!unknown.ok, 'missing artifact path is not committed as a successful purge')
+
 // outside-root guard
 const outside = host.deleteSessionArtifact({ sessionId: DEAD, artifactPath: join(tmp, '..', 'other', 'session.jsonl.zstd') })
 assert.ok(!outside.ok, 'outside-root path refused')

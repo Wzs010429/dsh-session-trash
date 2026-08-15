@@ -1,7 +1,7 @@
 /**
  * End-to-end host flow test with a mocked cordis context:
- * delete -> manifest persisted -> restore -> delete again -> process 'exit'
- * -> hard purge (artifact + workspace.json + session_projcache.json).
+ * delete -> manifest persisted -> restore -> delete again -> SIGINT -> Cordis
+ * disposal -> hard purge (artifact + workspace.json + session_projcache.json).
  * DSH_HOME points at a temp dir; the real data home is never touched.
  */
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs'
@@ -125,9 +125,10 @@ assert.equal(out.status, 400, 'invalid id refused')
 out = await call('/session-trash/restore', { sessionId: KEEP })
 assert.equal(out.status, 404, 'restore of non-trashed session refused')
 
-// 5. hard purge on exit
+// 5. Match DSH's real shutdown order: signal first, then dispose the tree.
 assert.ok(existsSync(join(liveDir, 'session.jsonl.zstd')), 'artifact still on disk before exit')
-process.emit('exit')
+process.emit('SIGINT')
+for (const dispose of [...disposers].reverse()) dispose()
 assert.ok(!existsSync(liveDir), 'artifact directory purged on exit')
 let ws = JSON.parse(readFileSync(join(storages, 'workspace.json'), 'utf8'))
 assert.ok(!ws.global.archivedSessionIds.includes(LIVE), 'archive set pruned on exit')
@@ -138,6 +139,5 @@ assert.ok(!(LIVE in pc.tables.sessions), 'projection cache row purged on exit')
 assert.ok(KEEP in pc.tables.sessions, 'unrelated cache row kept')
 assert.ok(!existsSync(join(storages, 'session-trash.json')), 'manifest removed after purge')
 
-for (const dispose of disposers) dispose()
 rmSync(tmp, { recursive: true, force: true })
 console.log('hostflow: all assertions passed')
