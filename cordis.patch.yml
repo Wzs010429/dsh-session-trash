@@ -1,7 +1,16 @@
-# dsh-session-trash bundle patch: inserts its plugin row into the profile
-# composition. The bundle is the official dsh plugin shape — install it with
-#   dsh plugin --profile web add <path-to-this-directory>
-# then restart `dsh web`.
+# dsh-session-trash bundle patch.
+#
+# 1) The stock workspace browser row (`ui-workspace`) is disabled because this
+#    bundle ships a fork of its client half that adds a "delete" item to the
+#    session row menu. Two registrations of the `sidebar.workspaces` slot
+#    would collide on its child-slot declaration (the slot core throws on a
+#    duplicate `children` declaration), so the stock row must not mount.
+# 2) The session-trash row (host half + forked browser + trash panel client
+#    half) is inserted.
+#
+# Install with: dsh plugin --profile web add <path-to-this-directory>
+- id: ui-workspace
+  disabled: true
 - insert:
     - id: session-trash
       name: '@dsh-external/dsh-session-trash'
