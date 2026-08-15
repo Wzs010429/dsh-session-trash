@@ -44,6 +44,8 @@ const registry = {
   state: { initialized: true, workspaceIds: ['w1'], archivedSessionIds: [KEEP] },
   async archiveSession(id) {
     if (id !== LIVE) throw new Error(`cannot archive session '${id}': unknown`)
+    const manifest = JSON.parse(readFileSync(join(storages, 'session-trash.json'), 'utf8'))
+    assert.equal(manifest.trash[0].state, 'pending', 'recoverable pending row is durable before archive')
     if (this.state.archivedSessionIds.includes(id)) return
     this.state.archivedSessionIds.push(id)
   },
@@ -116,8 +118,12 @@ assert.equal(out.body.settings.purgeOnShutdown, true, 'shutdown purge can be re-
 out = await call('/session-trash/delete', { sessionId: LIVE })
 assert.equal(out.status, 200, 'delete succeeds')
 assert.equal(out.body.trash.length, 1, 'trash has one entry')
+assert.equal(out.body.trash[0].state, 'committed', 'delete transaction commits after archive')
+assert.equal(out.body.trash[0].sizeBytes, 8, 'list includes artifact size')
+assert.equal(out.body.trash[0].canPurge, false, 'live sessions cannot be purged immediately')
 assert.ok(registry.state.archivedSessionIds.includes(LIVE), 'registry archived the session')
 assert.ok(existsSync(join(storages, 'session-trash.json')), 'manifest persisted')
+assert.equal(JSON.parse(readFileSync(join(storages, 'session-trash.json'), 'utf8')).version, 2, 'manifest upgraded to v2')
 
 // 3. restore it
 out = await call('/session-trash/restore', { sessionId: LIVE })

@@ -1,6 +1,6 @@
 # 设计文档：DSH 会话删除插件（dsh-session-trash）
 
-> 目标：在 DSH Web GUI 中新增带二次确认的会话回收站——软删除可恢复，并由本地策略决定正常关闭时是否物理删除及同步清理缓存。
+> 目标：在 DSH Web GUI 中提供崩溃安全的会话回收站——软删除可恢复、显示工件占用，并可在运行期或正常关停时安全物理清理。
 
 ## 一、可行性结论
 
@@ -12,17 +12,28 @@
 | 二次确认 | `RiskConfirmation`（确认按钮在勾选确认项之前禁用） | ✅ |
 | 删除后立即隐藏 | `workspaceRegistry.archiveSession()`——官方归档：分组视图**和搜索**全部隐藏（`sessionVisible` 过滤），`host/archived-sessions-changed` 帧自动同步所有标签页 | ✅ |
 | 运行期间可恢复 | 注册表**无公开 unarchive API**；通过注册表自身的 `enqueueOperation()` + `setState()` 写回不含该 id 的归档集，域写入自动触发 `domain/changed` → api-proxy 广播帧 → 即时回归（已在源码确认 `dsh-host-apiproxy` 的 domain/changed 监听器会推送完整归档快照） | ✅（依赖内部方法签名） |
+| 运行期永久删除 | 仅允许未加载会话；Workspace 经 `detachSession()`/`setState()` 清理，投影缓存经其 domain table 清理，避免内存态覆盖带外 JSON 修改 | ✅（依赖内部方法签名） |
+| 删除前占用预览 | 对受 sessions-root 路径守卫保护的会话工件目录做短时缓存统计；符号链接不递归跟随 | ✅ |
 | 关闭后物理删除 | DSH **没有任何会话删除 API**；插件识别 `SIGINT/SIGTERM`，在 Cordis dispose 阶段按 `purgeOnShutdown` 策略同步执行文件手术，`process.on('exit')` 作为强制退出 fallback | ✅ |
 | 删除缓存文本 | 投影缓存同样无逐出 API；运行期隐藏后搜索/列表均不可达（会话行仅留在隐藏列表 store 中）；退出时从 `session_projcache.json` 删除该 id 的整行（title/stat/goal 等） | ✅ |
-| 数据安全 | 删除清单持久化：异常退出（崩溃/强杀）时归档保留 + 清单重载 → 会话保持隐藏且可恢复，**永不意外丢失** | ✅ |
+| 数据安全 | v2 清单使用 `pending → committed → purging`：未提交项不物理删除，已开始物理删除项不再提供虚假恢复，失败项幂等重试 | ✅ |
 
 ## 二、需求设计是否合理
 
-**合理，且比「立即硬删」更安全。** 这是经典的「回收站 + 关停提交」模型（类似 OS 回收站定时清空、git staged deletion）：
+**合理。** 默认仍是「回收站 + 关停提交」模型；`v0.6.0` 增加受保护的显式立即清理：
 
 1. **运行期软删除**：用户删除的瞬间不需要做任何破坏性 IO；隐藏走官方归档，所有标签页立即一致；
 2. **关停硬删除**：DSH 收到关停信号后先 dispose 整棵插件树，再调用 `process.exit()`；插件在自身 disposer 中提交「删文件 + 改注册表 + 清缓存」，避免 `exit` 监听器先被 Cordis 清理而永远不执行；
 3. **崩溃安全**：清单持久化让强杀/断电场景退化为「隐藏但可恢复」，与用户「关闭即删」的期望只在**安全方向**上偏离。
+4. **显式立即清理**：仅对不在 session service 中的冷会话开放；先把清单推进到 `purging`，再删工件并通过运行时 domain 写路径清 metadata，最后移除清单行。
+
+### v2 清单状态机
+
+| 状态 | 含义 | 可恢复 | 可物理清理 |
+| --- | --- | --- | --- |
+| `pending` | 清单已落盘，官方归档尚未完成或提交写入失败 | ✅ | ❌ |
+| `committed` | 会话已归档，工件完整保留 | ✅ | ✅（仅冷会话） |
+| `purging` | 物理删除已开始，工件或 metadata 可能已部分移除 | ❌ | ✅（幂等重试） |
 
 值得指出的三个设计代价（已写入 README「已知限制」）：
 
@@ -56,10 +67,11 @@
 | 文件 | 职责 |
 | --- | --- |
 | `cordis.patch.yml` | bundle patch：把插件行注入 profile 组合 |
-| `lib/index.js` | host：list/delete/restore/settings 路由、回收站与策略持久化、信号感知的关停清理；导出纯函数供测试 |
+| `lib/index.js` | host：list/delete/restore/settings/purge 路由、v2 事务清单、占用统计、运行期与关停清理；导出纯函数供测试 |
 | `lib/client.js` | browser：`sidebar.footer.action` 入口按钮 + 回收站面板（body portal）+ RiskConfirmation 二次确认 + Toast；不 fork 官方 Workspace |
 | `scripts/selftest.mjs` | 夹具级单测：JSON 手术、原子写、路径越界防护 |
 | `scripts/hostflow.test.mjs` | mock ctx 端到端：删除→清单→恢复→再删→exit 硬清除 |
+| `scripts/purgeflow.test.mjs` | mock ctx 端到端：大小预览→运行中保护→冷会话立即清理→运行时 metadata 同步 |
 
 ## 五、风险与缓解
 
@@ -67,5 +79,7 @@
 | --- | --- |
 | DSH 升级改动内部方法名 | 版本钉住；README 注明；恢复失败仅返回 500，不影响归档状态 |
 | 硬删除时文件被占用（Windows） | `rmSync` 逐项 try/catch，失败项留在清单，下次关闭重试；永远向「保留数据」方向降级 |
+| 运行期直接改 JSON 被内存态覆盖 | 立即清理不直接改 Workspace/投影缓存 JSON；分别通过现有 runtime domain 对象写入 |
+| 物理删除中途崩溃后误恢复 | 删除任何工件前先持久化 `purging`；该状态禁用恢复，只允许幂等重试清理 |
 | 插件损坏导致 web 无法启动 | 行级回滚：从 profile `package.json` 移除 bundles/dependencies 条目即可恢复 |
 | 多标签页一致性 | 全部走官方广播帧（归档/恢复均为注册表级变更），无需自建推送 |

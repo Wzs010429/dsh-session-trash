@@ -16,6 +16,12 @@ const host = await import('../lib/index.js')
 assert.deepEqual(host.normalizeSettings(undefined), { purgeOnShutdown: true }, 'settings default to shutdown purge')
 assert.deepEqual(host.normalizeSettings({ purgeOnShutdown: false }), { purgeOnShutdown: false }, 'explicit keep policy persists')
 assert.deepEqual(host.normalizeSettings({ purgeOnShutdown: 'no' }), { purgeOnShutdown: true }, 'invalid setting falls back safely')
+assert.equal(host.normalizeTrashEntry({ sessionId: 'invalid' }), undefined, 'invalid manifest rows are ignored')
+assert.equal(
+  host.normalizeTrashEntry({ sessionId: 'session-legacy00-0000-4000-8000-000000000000', archivedAt: 1 }).state,
+  'committed',
+  'legacy manifest rows migrate as committed',
+)
 
 const DEAD = 'session-deadbeef-0000-4000-8000-000000000000'
 const KEEP = 'session-keep0000-0000-4000-8000-000000000000'
@@ -100,6 +106,7 @@ assert.deepEqual(host.readJsonFile(wsFile), next, 'atomic write roundtrips')
 
 // ---- artifact deletion ----------------------------------------------------------
 const entry = { sessionId: DEAD, artifactPath: join(deadDir, 'session.jsonl.zstd') }
+assert.equal(host.sessionArtifactSize(entry), 8, 'artifact size includes the stored log bytes')
 const result = host.deleteSessionArtifact(entry)
 assert.ok(result.ok, `artifact purge succeeds: ${JSON.stringify(result)}`)
 assert.ok(!existsSync(deadDir), 'session directory fully removed')
