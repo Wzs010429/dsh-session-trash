@@ -17,8 +17,10 @@
     "scripts/build-client.mjs",
     "cordis.patch.yml",
     "README.md",
+    "README.zh-CN.md",
     "DESIGN.md",
     "CHANGELOG.md",
+    "docs/images",
     "LICENSE"
   ],
   "dsh": {
