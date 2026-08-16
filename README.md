@@ -1,6 +1,6 @@
 # dsh-session-trash
 
-> DeepSeek Harness（DSH）Web GUI 的崩溃安全会话回收站：删除后可立即撤销、可选级联子代理后代、跨标签页同步、可靠识别磁盘占用与缺失工件，并适配原生浅色/深色主题。
+> DeepSeek Harness（DSH）Web GUI 的崩溃安全会话回收站：删除后可立即撤销、可选级联子代理后代、支持关闭时/7 天/30 天/永久保留策略，并适配跨标签页同步与原生浅色/深色主题。
 
 **A crash-safe session trash bin for the DSH web GUI with undo, cross-tab sync, artifact-size preview, and guarded permanent purge.**
 
@@ -13,7 +13,7 @@
 | **多标签页（Cross-tab）** | 删除、撤销、恢复、永久清理和策略修改通过 `BroadcastChannel` 即时刷新其他 Harness 标签页，并保留焦点/可见性刷新和低频轮询兜底。 |
 | **查找（Search）** | 回收站面板可按标题、完整 session ID 或工作区名过滤；回收站条目固定按最近删除优先排列。 |
 | **永久删除（Purge）** | 回收站逐项显示当前磁盘占用快照；已确认不存在的工件显示「工件已不存在」并按 `0 B` 计，仍可清理 Workspace/投影缓存和回收站清单。可永久删除单项或清空所有已停止会话；仍被 Harness 加载的会话会被安全跳过。 |
-| **关闭 `dsh web`** | 默认同步硬删除日志、Workspace 登记和投影缓存；关闭「关闭时永久清理」后，仅保留隐藏状态与回收站清单。 |
+| **自动清理（Retention）** | 可选择「关闭时清理」（默认）、「保留 7 天」、「保留 30 天」或「永久保留」。有限保留期在运行时每小时检查，并在正常关闭时再次清理真正到期的条目；运行中的条目在运行期安全跳过。 |
 | **进程崩溃 / 强杀** | 三阶段清单记录 `pending → committed → purging`；未提交的删除永不进入物理清理，已经开始物理清理的条目不会错误地提供恢复。 |
 
 ## 安装 Install
@@ -37,7 +37,7 @@ dsh plugin --profile web remove @dsh-external/dsh-session-trash
 插件是标准的 DSH bundle 插件（与官方皮肤插件同构）：
 
 - `cordis.patch.yml`：保留原版 `ui-workspace`，只把本插件行插入 profile 组合；
-- `lib/index.js`（host）：**声明 `inject`**，注册 list/preview/delete/restore/settings/purge 路由，按 Harness 的连续 `origin: subagent` 血缘计算后代，维护批次事务、磁盘占用缓存和清理策略；会话 API 无法定位工件时，再以路径守卫扫描标准 sessions 布局，区分「确认不存在」与「读取失败」；立即清理走 Workspace/投影缓存的运行时写路径，关停清理走同步文件路径；
+- `lib/index.js`（host）：**声明 `inject`**，注册 list/preview/delete/restore/settings/purge 路由，按 Harness 的连续 `origin: subagent` 血缘计算后代，维护批次事务、磁盘占用缓存和保留策略；有限保留期每小时筛选到期项，正常关停时再次精确筛选；会话 API 无法定位工件时，再以路径守卫扫描标准 sessions 布局，区分「确认不存在」与「读取失败」；
 - `lib/client.js`（browser，由 `scripts/build-client.mjs` 生成）：通过官方支持的 `sidebar.footer.action` slot 注册「回收站」按钮与面板；同时观察官方语义化的 session-row/menu DOM，在菜单弹出时追加「删除当前会话」；删除确认会先预览子代理后代，并默认选择「仅删除当前会话」。删除成功后显示 7 秒单项/整批撤销入口，并向其他标签页广播状态变化。面板和提示仅使用 Harness 原生 `--dsw-*` 主题变量，自动跟随浅色、深色和第三方皮肤；
 - 关停清理同时理解 DSH 的真实顺序：`SIGINT/SIGTERM → fiber.dispose() → process.exit()`。插件先记录关停信号，在自己的 disposer 中同步提交删除，并保留 `exit` fallback。
 
@@ -48,11 +48,13 @@ dsh plugin --profile web remove @dsh-external/dsh-session-trash
 - **关停顺序感知**：识别 DSH 的 `SIGINT/SIGTERM → fiber.dispose() → process.exit()` 顺序，在 disposer 中按策略清理，`exit` 仅作为强制退出 fallback；
 - **崩溃安全事务**：软删除前先持久化 `pending`，归档成功后转为 `committed`；物理删除前先持久化 `purging`，任何中断都向保留或可重试方向退化；
 - **可选子代理级联**：严格沿 Harness 官方的连续 `origin: subagent` 血缘计算后代，普通 fork 截断传播；默认关闭级联，选择级联后每个会话仍保留独立清单行，并用共享 `batchId` 支持整批撤销/恢复；
+- **孤儿摘要过滤**：父会话物理清理后，Harness 的内存目录可能短暂保留历史子代理摘要；面板不会把这类无父会话、无持久化工件的摘要误列为可删除会话；
+- **可配置保留期**：设置文件使用 `retentionDays: 0 | 7 | 30 | null`；旧版 `purgeOnShutdown` 自动映射为关闭时清理/永久保留。7/30 天策略只提交到期条目，未到期条目在重启后继续可恢复；
 - **运行时永久清理**：仅允许清理未加载会话；Workspace 通过 `detachSession`/`setState`、投影缓存通过其 domain table 删除，避免直接改 JSON 后被内存态覆盖；
 - **即时撤销与跨标签页同步**：软删除后提供 7 秒一键撤销；`BroadcastChannel` 只发送“状态已变化”信号，其他标签页仍从 host API 重新读取权威清单；
 - **缺失工件可收敛**：只有在受路径守卫保护的 sessions 扫描明确确认目录不存在后，才持久化 `artifactMissing`；此时大小为 `0 B`，物理阶段成为 metadata-only 清理。读取失败仍保持「大小未知」并禁止误提交；
 - **原生主题适配**：Harness 通过 `body[data-ds-dark-theme]` 切换设计变量；插件使用 `--dsw-specific-menu`、`--dsw-alias-bg-*`、`--dsw-alias-border-*`、`--dsw-alias-toast-bg` 和 `--dsw-shadow-*`，不硬编码浅色表面；
-- **独立策略文件**：`storages/session-trash-settings.json` 保存 `purgeOnShutdown`，不迁移、不改写现有删除清单。
+- **独立策略文件**：`storages/session-trash-settings.json` 保存 `retentionDays`，旧版布尔设置读取时自动兼容，不改写现有删除清单。
 
 ## 已验证 Validated
 
@@ -62,6 +64,7 @@ dsh plugin --profile web remove @dsh-external/dsh-session-trash
 - `scripts/purgeflow.test.mjs`：验证大小预览、运行中保护、冷会话立即清理以及运行时 Workspace/投影缓存同步；
 - `scripts/orphanflow.test.mjs`：验证无工件清单在启动时收敛为 `artifactMissing`、显示 `0 B`，并完成 metadata-only 清理；
 - `scripts/cascadeflow.test.mjs`：验证子代理后代预览、普通 fork 截断、已归档后代排除、批次失败回滚、批次提交和从任意条目整批恢复；
+- `scripts/retentionflow.test.mjs`：验证 7 天策略在关停时仅清理已满 7 天的日志、Workspace 登记和投影缓存，未到期条目保持完整可恢复；
 - `scripts/clientbundle.test.mjs`：防回归检查，保证发布 bundle 包含撤销与跨标签页同步，同时不嵌入或禁用官方 Workspace，也不会注册 `workspace` locale；
 - **实机验证**：三点菜单注入 ✓、双层风险确认 ✓、数量徽标 ✓、大小预览 ✓、永久删除/清空入口 ✓、运行中保护 ✓、官方 Workspace 与本插件并存且控制台无错误 ✓。
 
@@ -76,7 +79,7 @@ dsh plugin --profile web remove @dsh-external/dsh-session-trash
 7. 在设置中分别选择「浅色」和「深色」，回收站面板、行状态、危险按钮和撤销提示都应保持清晰可读；
 8. 在搜索框输入标题、工作区名或 session ID，两个列表只显示匹配项；回收站始终以最近删除的会话在前；
 9. 回收站显示每项占用或明确的「工件已不存在」；点「永久删除」或「清空回收站」→ 出现独立强确认，运行中会话不会进入清理；
-10. 关闭「关闭时永久清理」后重启：回收站内容仍存在并可恢复；重新开启后正常关闭 `dsh web`，待删除会话彻底消失。
+10. 依次选择「关闭时清理 / 保留 7 天 / 保留 30 天 / 永久保留」，确认提示文案和设置持久化一致；有限保留期只清理真正到期的条目。
 
 ## 已知限制 Known limitations
 
@@ -103,7 +106,7 @@ dsh plugin --profile web remove @dsh-external/dsh-session-trash
 - [x] 缺失工件的 `0 B` 判定与 metadata-only 清理
 - [x] Harness 原生浅色/深色主题变量适配
 - [x] 按标题 / ID / 工作区搜索并按最近删除排序
-- [ ] 7 / 30 天保留期策略
+- [x] 关闭时 / 7 天 / 30 天 / 永久保留策略
 - [ ] 把浏览器 fork 升级为「slot 子菜单」类官方扩展点（若上游提供）
 
 ## License

@@ -1,7 +1,7 @@
 {
   "name": "@dsh-external/dsh-session-trash",
-  "description": "Crash-safe session trash for the DeepSeek Harness Web GUI with batch undo, optional subagent cascade, and guarded permanent purge",
-  "version": "0.9.0",
+  "description": "Crash-safe session trash for the DeepSeek Harness Web GUI with retention policies, batch undo, and optional subagent cascade",
+  "version": "0.10.0",
   "license": "MIT",
   "type": "module",
   "main": "lib/index.js",
@@ -42,7 +42,7 @@
   },
   "scripts": {
     "build:client": "node scripts/build-client.mjs",
-    "test": "node scripts/selftest.mjs && node scripts/hostflow.test.mjs && node scripts/settingsflow.test.mjs && node scripts/purgeflow.test.mjs && node scripts/orphanflow.test.mjs && node scripts/cascadeflow.test.mjs && node scripts/clientbundle.test.mjs"
+    "test": "node scripts/selftest.mjs && node scripts/hostflow.test.mjs && node scripts/settingsflow.test.mjs && node scripts/purgeflow.test.mjs && node scripts/orphanflow.test.mjs && node scripts/cascadeflow.test.mjs && node scripts/retentionflow.test.mjs && node scripts/clientbundle.test.mjs"
   },
   "repository": {
     "type": "git",

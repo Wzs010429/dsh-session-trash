@@ -13,9 +13,18 @@ const tmp = mkdtempSync(join(tmpdir(), 'session-trash-selftest-'))
 process.env.DSH_HOME = tmp
 const host = await import('../lib/index.js')
 
-assert.deepEqual(host.normalizeSettings(undefined), { purgeOnShutdown: true }, 'settings default to shutdown purge')
-assert.deepEqual(host.normalizeSettings({ purgeOnShutdown: false }), { purgeOnShutdown: false }, 'explicit keep policy persists')
-assert.deepEqual(host.normalizeSettings({ purgeOnShutdown: 'no' }), { purgeOnShutdown: true }, 'invalid setting falls back safely')
+assert.deepEqual(host.normalizeSettings(undefined), { retentionDays: 0 }, 'settings default to shutdown purge')
+assert.deepEqual(host.normalizeSettings({ purgeOnShutdown: false }), { retentionDays: null }, 'legacy keep policy migrates')
+assert.deepEqual(host.normalizeSettings({ retentionDays: 7 }), { retentionDays: 7 }, 'seven-day retention persists')
+assert.deepEqual(host.normalizeSettings({ retentionDays: 30 }), { retentionDays: 30 }, 'thirty-day retention persists')
+assert.deepEqual(host.normalizeSettings({ retentionDays: 9 }), { retentionDays: 0 }, 'invalid retention falls back safely')
+assert.ok(host.retentionExpired({ archivedAt: 1 }, { retentionDays: 0 }, 2), 'shutdown policy makes every committed age eligible')
+assert.ok(host.retentionExpired({ archivedAt: 1 }, { retentionDays: 7 }, 7 * 86400000 + 1), 'seven-day entries become eligible at the boundary')
+assert.ok(!host.retentionExpired({ archivedAt: 2 }, { retentionDays: 7 }, 7 * 86400000 + 1), 'younger entries remain protected')
+assert.ok(!host.retentionExpired({ archivedAt: 1 }, { retentionDays: null }, Number.MAX_SAFE_INTEGER), 'forever policy never expires entries')
+assert.ok(!host.automaticPurgeDue({ state: 'committed', archivedAt: 1 }, { retentionDays: 0 }, false, 2), 'shutdown policy does not purge committed entries at runtime')
+assert.ok(host.automaticPurgeDue({ state: 'committed', archivedAt: 1 }, { retentionDays: 0 }, true, 2), 'shutdown policy purges committed entries during shutdown')
+assert.ok(host.automaticPurgeDue({ state: 'purging', archivedAt: 2 }, { retentionDays: null }, false, 2), 'crash-interrupted purges resume even under keep-forever policy')
 assert.equal(host.normalizeTrashEntry({ sessionId: 'invalid' }), undefined, 'invalid manifest rows are ignored')
 assert.equal(
   host.normalizeTrashEntry({ sessionId: 'session-legacy00-0000-4000-8000-000000000000', archivedAt: 1 }).state,
