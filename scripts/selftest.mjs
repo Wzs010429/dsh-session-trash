@@ -13,11 +13,13 @@ const tmp = mkdtempSync(join(tmpdir(), 'session-trash-selftest-'))
 process.env.DSH_HOME = tmp
 const host = await import('../lib/index.js')
 
-assert.deepEqual(host.normalizeSettings(undefined), { retentionDays: 0 }, 'settings default to shutdown purge')
-assert.deepEqual(host.normalizeSettings({ purgeOnShutdown: false }), { retentionDays: null }, 'legacy keep policy migrates')
-assert.deepEqual(host.normalizeSettings({ retentionDays: 7 }), { retentionDays: 7 }, 'seven-day retention persists')
-assert.deepEqual(host.normalizeSettings({ retentionDays: 30 }), { retentionDays: 30 }, 'thirty-day retention persists')
-assert.deepEqual(host.normalizeSettings({ retentionDays: 9 }), { retentionDays: 0 }, 'invalid retention falls back safely')
+const defaultExtras = { requireExportBeforePurge: false, spaceWarningBytes: null }
+assert.deepEqual(host.normalizeSettings(undefined), { retentionDays: 0, ...defaultExtras }, 'settings default to shutdown purge')
+assert.deepEqual(host.normalizeSettings({ purgeOnShutdown: false }), { retentionDays: null, ...defaultExtras }, 'legacy keep policy migrates')
+assert.deepEqual(host.normalizeSettings({ retentionDays: 7 }), { retentionDays: 7, ...defaultExtras }, 'seven-day retention persists')
+assert.deepEqual(host.normalizeSettings({ retentionDays: 30 }), { retentionDays: 30, ...defaultExtras }, 'thirty-day retention persists')
+assert.deepEqual(host.normalizeSettings({ retentionDays: 9 }), { retentionDays: 0, ...defaultExtras }, 'invalid retention falls back safely')
+assert.deepEqual(host.normalizeSettings({ retentionDays: 7, requireExportBeforePurge: true, spaceWarningBytes: 1024 ** 3 }), { retentionDays: 7, requireExportBeforePurge: true, spaceWarningBytes: 1024 ** 3 }, 'v3 safety and space settings persist')
 assert.ok(host.retentionExpired({ archivedAt: 1 }, { retentionDays: 0 }, 2), 'shutdown policy makes every committed age eligible')
 assert.ok(host.retentionExpired({ archivedAt: 1 }, { retentionDays: 7 }, 7 * 86400000 + 1), 'seven-day entries become eligible at the boundary')
 assert.ok(!host.retentionExpired({ archivedAt: 2 }, { retentionDays: 7 }, 7 * 86400000 + 1), 'younger entries remain protected')
@@ -25,6 +27,9 @@ assert.ok(!host.retentionExpired({ archivedAt: 1 }, { retentionDays: null }, Num
 assert.ok(!host.automaticPurgeDue({ state: 'committed', archivedAt: 1 }, { retentionDays: 0 }, false, 2), 'shutdown policy does not purge committed entries at runtime')
 assert.ok(host.automaticPurgeDue({ state: 'committed', archivedAt: 1 }, { retentionDays: 0 }, true, 2), 'shutdown policy purges committed entries during shutdown')
 assert.ok(host.automaticPurgeDue({ state: 'purging', archivedAt: 2 }, { retentionDays: null }, false, 2), 'crash-interrupted purges resume even under keep-forever policy')
+const zip = host.createStoredZip([{ name: 'session/test.txt', data: Buffer.from('backup') }])
+assert.equal(zip.readUInt32LE(0), 0x04034b50, 'backup starts with a ZIP local-file header')
+assert.equal(zip.readUInt32LE(zip.length - 22), 0x06054b50, 'backup ends with a ZIP central-directory record')
 assert.equal(host.normalizeTrashEntry({ sessionId: 'invalid' }), undefined, 'invalid manifest rows are ignored')
 assert.equal(
   host.normalizeTrashEntry({ sessionId: 'session-legacy00-0000-4000-8000-000000000000', archivedAt: 1 }).state,

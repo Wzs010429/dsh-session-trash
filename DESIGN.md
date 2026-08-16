@@ -16,6 +16,9 @@
 | 运行期永久删除 | 仅允许未加载会话；Workspace 经 `detachSession()`/`setState()` 清理，投影缓存经其 domain table 清理，避免内存态覆盖带外 JSON 修改 | ✅（依赖内部方法签名） |
 | 删除前占用预览 | 对受 sessions-root 路径守卫保护的会话工件目录做短时缓存统计；符号链接不递归跟随。API 定位失败后扫描标准两级布局，明确区分已确认不存在（`0 B`）与不可判定（大小未知） | ✅ |
 | 保留期与关闭后物理删除 | `retentionDays: 0/7/30/null`；有限保留期运行时每小时检查，插件识别 `SIGINT/SIGTERM` 后在 Cordis dispose 阶段只同步清理到期项，`process.on('exit')` 作为 fallback | ✅ |
+| 备份与删除门禁 | host 从受路径守卫保护的工件生成 stored ZIP；成功后在清单写入 `exportedAt`，可配置未导出条目禁止进入任何物理删除 | ✅（浏览器下载上限 512 MiB） |
+| 批量与空间管理 | host 返回统一统计、到期状态和安全能力；client 做筛选/排序/多选，只把明确可清理的 session ID 发送到既有两阶段事务 | ✅ |
+| 兼容诊断与操作记录 | 启动能力按实际 service/method 检查；审计文件最多 200 条 metadata 事件，不含日志正文 | ✅ |
 | 删除缓存文本 | 投影缓存同样无逐出 API；运行期隐藏后搜索/列表均不可达（会话行仅留在隐藏列表 store 中）；退出时从 `session_projcache.json` 删除该 id 的整行（title/stat/goal 等） | ✅ |
 | 数据安全 | v3 清单使用 `pending → committed → purging`，并为级联条目记录共享 `batchId`：未提交项不物理删除，已开始物理删除项不再提供虚假恢复，失败项幂等重试 | ✅ |
 
@@ -29,6 +32,9 @@
 4. **显式立即清理**：仅对不在 session service 中的冷会话开放；先把清单推进到 `purging`，再删工件并通过运行时 domain 写路径清 metadata，最后移除清单行。
 5. **无工件收敛**：只有完整读取 sessions 根目录并确认无同 id 目录时才写入 `artifactMissing`；该状态允许执行 metadata-only 清理。权限错误等不可判定场景仍保留清单。
 6. **有限保留期**：`0` 保持既有“关闭时全部提交”语义；`7/30` 天在运行期每小时扫描并在关停时复查，只把 `archivedAt` 达到截止时间的条目送入同一 `purgeEntries` 两阶段事务；`null` 永不自动提交。
+7. **导出门禁先落盘**：ZIP 成功构造后先把 `exportedAt` 原子写入清单，再返回下载；开启门禁时，`purgeEntries` 对未导出 `committed` 条目统一返回 blocked，`purging` 崩溃恢复不受新策略阻断。
+8. **空间阈值不改变数据寿命**：`spaceWarningBytes` 只生成统计告警；清理向导仍需用户明确选择已到期项或全部停止项，并继续经过运行状态与导出门禁检查。
+9. **审计最小化**：操作历史只记录类型、时间、session ID、结果、数量和字节数，最多 200 条；不解析、不复制会话正文。
 
 ### v3 清单状态机
 
@@ -72,13 +78,14 @@
 | 文件 | 职责 |
 | --- | --- |
 | `cordis.patch.yml` | bundle patch：把插件行注入 profile 组合 |
-| `lib/index.js` | host：list/preview/delete/restore/settings/purge 路由、v3 批次事务清单、子代理血缘、占用统计、运行期与关停清理；导出纯函数供测试 |
-| `lib/client.js` | browser：`sidebar.footer.action` 入口按钮 + 回收站面板（body portal）+ 单项/级联 Modal + 永久清理 RiskConfirmation + Toast；不 fork 官方 Workspace |
+| `lib/index.js` | host：list/preview/delete/restore/settings/purge/export/history/diagnostics、ZIP、v3 批次事务、审计、空间统计、运行期与关停清理 |
+| `lib/client.js` | browser：入口/三点菜单、倒计时、筛选排序、多选批量操作、备份/历史/诊断/空间管理、风险确认与 Toast；不 fork 官方 Workspace |
 | `scripts/cascadeflow.test.mjs` | mock ctx 端到端：血缘预览→批次失败回滚→批次提交→从任意成员整批恢复 |
 | `scripts/retentionflow.test.mjs` | mock ctx 关停流程：7 天策略只清理过期条目，保留未到期工件和 metadata |
+| `scripts/runtimesweep.test.mjs` | mock ctx 定时流程：清理到期项、续跑 `purging` 项、保护未到期项 |
 | `scripts/selftest.mjs` | 夹具级单测：JSON 手术、原子写、路径越界防护 |
 | `scripts/hostflow.test.mjs` | mock ctx 端到端：删除→清单→恢复→再删→exit 硬清除 |
-| `scripts/purgeflow.test.mjs` | mock ctx 端到端：大小预览→运行中保护→冷会话立即清理→运行时 metadata 同步 |
+| `scripts/purgeflow.test.mjs` | mock ctx 端到端：诊断→统计→运行中保护→导出门禁→ZIP→历史→批量恢复→运行时 metadata 同步 |
 | `scripts/orphanflow.test.mjs` | mock ctx 端到端：缺失工件确认→`0 B`→metadata-only 清理 |
 
 ## 五、风险与缓解

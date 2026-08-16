@@ -102,11 +102,11 @@ async function call(path, payload, method = 'POST') {
 // 1. list starts empty and settings round-trip through their own durable file.
 let out = await call('/session-trash/list', undefined, 'GET')
 assert.deepEqual(out.body.trash, [], 'initial trash empty')
-assert.deepEqual(out.body.settings, { retentionDays: 0, purgeOnShutdown: true }, 'shutdown purge defaults on')
+assert.deepEqual(out.body.settings, { retentionDays: 0, requireExportBeforePurge: false, spaceWarningBytes: null, purgeOnShutdown: true }, 'shutdown purge defaults on')
 out = await call('/session-trash/settings', { retentionDays: 7 })
 assert.equal(out.status, 200, 'settings update succeeds')
 assert.equal(out.body.settings.retentionDays, 7)
-assert.deepEqual(JSON.parse(readFileSync(join(storages, 'session-trash-settings.json'), 'utf8')), { version: 2, retentionDays: 7 }, 'settings persist in v2 form')
+assert.deepEqual(JSON.parse(readFileSync(join(storages, 'session-trash-settings.json'), 'utf8')), { version: 3, retentionDays: 7, requireExportBeforePurge: false, spaceWarningBytes: null }, 'settings persist in v3 form')
 out = await call('/session-trash/settings', undefined, 'GET')
 assert.equal(out.body.settings.retentionDays, 7, 'settings GET returns current policy')
 out = await call('/session-trash/settings', { retentionDays: 9 })
